@@ -24,9 +24,11 @@ This project demonstrates how LLMs can be used as evaluators (LLM-as-a-Judge) to
 
 ## 🛠️ Tech Stack
 
-- Python / JavaScript (update based on your project)
-- OpenAI API / LLMs
-- (Add frameworks you used: Flask / FastAPI / React / etc.)
+- Python
+- FastAPI
+- Streamlit
+- Groq
+- Gemini
 
 ---
 
@@ -48,6 +50,15 @@ This follows the concept of **LLM-as-a-Judge**, where AI evaluates outputs inste
 ```bash
 git clone https://github.com/bhaktiichandak/ai-judge.git
 cd ai-judge
+pip install -r requirements.txt
+```
+
+## ▶️ Run Locally
+
+```bash
+uvicorn backend.main:app --reload
+streamlit run frontend/app.py
+```
 
 ## 👩‍💻 Authors
 
