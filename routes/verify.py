@@ -12,7 +12,7 @@ import asyncio
 
 from services.ai_verification import extract_claims, filter_relevant_evidence, verify_claim_full
 from services.evidence_retrieval import retrieve_all_evidence
-from models.claim_model import save_claim, save_evidence_batch, get_claim_by_id, get_evidence_for_claim
+from models.claimmodel import save_claim, save_evidence_batch, get_claim_by_id, get_evidence_for_claim
 
 router = APIRouter()
 

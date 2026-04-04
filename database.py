@@ -5,7 +5,7 @@ from pymongo import IndexModel, ASCENDING, DESCENDING, TEXT
 
 load_dotenv()
 
-MONGODB_URI = os.getenv("MONGODB_URI", "mongodb+srv://<user>:<pass>@cluster.mongodb.net/factshield?retryWrites=true&w=majority")
+MONGODB_URL= os.getenv("MONGODB_URL")
 DB_NAME = "factshield"
 
 client = None
@@ -13,9 +13,10 @@ db = None
 
 async def connect_db():
     global client, db
-    client = motor.motor_asyncio.AsyncIOMotorClient(MONGODB_URI)
+    client = motor.motor_asyncio.AsyncIOMotorClient(MONGODB_URL)
     db = client[DB_NAME]
     await _create_indexes()
+    await db.command("ping")
     print(f"[DB] Connected to MongoDB Atlas: {DB_NAME}")
 
 async def close_db():

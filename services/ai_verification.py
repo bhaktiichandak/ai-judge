@@ -24,11 +24,11 @@ CLAIM_EXTRACTION_PROMPT = """You are a precise claim extraction engine.
 
 Given the following user input, extract all distinct factual claims.
 Return ONLY a JSON object in this exact format:
-{
+{{
   "claims": ["claim 1", "claim 2", ...],
   "category": "health|science|politics|history|technology|general",
   "complexity": "simple|moderate|complex"
-}
+}}
 
 User input: {text}
 """
