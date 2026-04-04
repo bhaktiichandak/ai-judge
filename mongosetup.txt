@@ -1,0 +1,22 @@
+MongoDB Atlas — Complete Setup Guide for FactShield
+Step 1: Create a Free Atlas Account
+
+Go to https://cloud.mongodb.com
+Click Try Free → sign up with Google or email
+Choose Free tier (M0) — no credit card needed
+
+Step 2: Create a Cluster
+
+Click Build a Database
+Select M0 Free (512 MB, perfect for hackathon)
+Pick a cloud provider & region (AWS us-east-1 recommended)
+Name your cluster: factshield-cluster
+Click Create
+
+Step 3: Create a Database User
+
+Left sidebar → Database Access → Add New Database User
+Username: factshield
+Password: generate a strong password (save it!)
+Role: Atlas Admin (for hackathon simplicity)
+Click Add User
