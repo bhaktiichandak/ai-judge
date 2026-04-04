@@ -59,13 +59,3 @@ pip install -r requirements.txt
 uvicorn backend.main:app --reload
 streamlit run frontend/app.py
 ```
-
-## 👩‍💻 Authors
-
-- **Bhakti Chandak**  
-  GitHub: https://github.com/bhaktiichandak  
-  Email: bhaktichandak04@gmail.com
-
-- **Teammate Name**  
-  GitHub: https://github.com/teammate  
-  Email: tpande966@gmail.com
