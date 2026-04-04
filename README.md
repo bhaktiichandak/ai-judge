@@ -48,3 +48,13 @@ This follows the concept of **LLM-as-a-Judge**, where AI evaluates outputs inste
 ```bash
 git clone https://github.com/bhaktiichandak/ai-judge.git
 cd ai-judge
+
+## 👩‍💻 Authors
+
+- **Bhakti Chandak**  
+  GitHub: https://github.com/bhaktiichandak  
+  Email: bhaktichandak04@gmail.com
+
+- **Teammate Name**  
+  GitHub: https://github.com/teammate  
+  Email: tpande966@gmail.com
