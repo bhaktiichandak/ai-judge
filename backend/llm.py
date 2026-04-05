@@ -10,16 +10,27 @@ from urllib.parse import urlparse
 import requests
 from dotenv import load_dotenv
 
+try:
+    from groq import Groq
+except Exception:  # pragma: no cover
+    Groq = None
+
 
 env_path = Path(__file__).parent / ".env"
 load_dotenv(dotenv_path=env_path)
+groq_client = Groq(api_key=os.getenv("GROQ_API_KEY")) if Groq and os.getenv("GROQ_API_KEY") else None
 
 MAX_CLAIMS = 3
 MAX_CREDIBLE_SOURCES = 5
 MAX_SEARCH_QUERIES = 4
 SEARCH_TIMEOUT_SECONDS = float(os.getenv("SEARCH_TIMEOUT_SECONDS", "3.0"))
 ENABLE_LIVE_SOURCES = os.getenv("ENABLE_LIVE_SOURCES", "true").lower() == "true"
+QUESTION_ANSWER_MODEL = os.getenv("QUESTION_ANSWER_MODEL", "llama-3.1-8b-instant")
 MCQ_OPTION_PATTERN = re.compile(r"^\s*([A-Ha-h]|\d{1,2})[\)\.\:\-]\s*(.+)$")
+QUESTION_START_PATTERN = re.compile(
+    r"^\s*(who|what|when|where|which|why|how|is|are|was|were|do|does|did|can|could|"
+    r"should|will|would|has|have|had|capital of|population of|define|explain)\b"
+)
 
 SEARCH_STOPWORDS = {
     "a", "an", "and", "are", "be", "can", "could", "did", "do", "does", "for",
@@ -198,6 +209,31 @@ def looks_like_code(text: str) -> bool:
     return hits >= 1 or (hits == 0 and symbol_hits >= 3 and "\n" in text)
 
 
+def looks_like_factual_prompt(text: str) -> bool:
+    lower = text.lower().strip()
+    raw_tokens = {
+        token.lower().strip(".-")
+        for token in re.findall(r"[A-Za-z0-9\.-]+", text)
+        if token.strip(".-")
+    }
+    return (
+        "?" in text
+        or bool(QUESTION_START_PATTERN.match(lower))
+        or bool(raw_tokens & FACTUAL_TERMS)
+        or bool(re.search(r"\b(true or false|fact[\s-]?check|correct or not)\b", lower))
+    )
+
+
+def looks_like_yes_no_question(text: str) -> bool:
+    lower = text.lower().strip()
+    return bool(
+        re.match(
+            r"^(is|are|was|were|do|does|did|can|could|should|will|would|has|have|had)\b",
+            lower,
+        )
+    )
+
+
 def infer_task_profile(user_message: str, selected_mode: str) -> dict:
     stripped = user_message.strip()
     mcq_data = parse_mcq_prompt(stripped)
@@ -206,7 +242,7 @@ def infer_task_profile(user_message: str, selected_mode: str) -> dict:
     sentence_count = len(re.findall(r"[.!?]+", stripped))
     explicit_source_request = bool(tokens & SOURCE_REQUEST_TERMS)
     research_like = bool(tokens & RESEARCH_TERMS)
-    factual_like = ("?" in stripped) or bool(tokens & FACTUAL_TERMS)
+    factual_like = looks_like_factual_prompt(stripped)
 
     if mcq_data:
         kind = "mcq"
@@ -263,6 +299,8 @@ def extract_claims_for_review(user_message: str, task_profile: dict | None = Non
     mcq_data = parse_mcq_prompt(raw_text)
     if mcq_data:
         return [cleanup_search_query(mcq_data["question"])]
+    if task_profile and task_profile.get("kind") == "question":
+        return [raw_text]
     if not task_profile or not task_profile.get("needs_evidence"):
         return [cleanup_search_query(raw_text)]
     segments = re.split(r"[\n\r]+|(?<=[\.\?\!])\s+", raw_text)
@@ -301,13 +339,14 @@ def domain_hint_queries(text: str) -> list[str]:
 
 
 def build_search_queries(claim: str, mcq_data: dict | None = None, needs_evidence: bool = False) -> list[str]:
-    base = cleanup_search_query(claim)
-    queries = [base, f"{base} official source"]
+    raw_claim = claim.strip()
+    base = cleanup_search_query(raw_claim)
+    queries = [raw_claim, base, f"{raw_claim} official source", f"{base} official source"]
     if mcq_data and cleanup_search_query(mcq_data["question"]) == claim:
         queries.extend(f"{base} {cleanup_search_query(option['text'])}" for option in mcq_data["options"][:2])
     queries.extend(f"{base} {hint}" for hint in domain_hint_queries(claim))
     if needs_evidence:
-        queries.extend([f"{base} site:gov", f"{base} site:edu"])
+        queries.extend([f"{raw_claim} site:gov", f"{base} site:gov", f"{raw_claim} site:edu", f"{base} site:edu"])
     deduped = []
     seen = set()
     for query in queries:
@@ -660,6 +699,98 @@ def build_corrected_answer(task_profile: dict, claims: list[str], sources: list[
     return ""
 
 
+def build_source_context(sources: list[SourceRecord]) -> str:
+    if not sources:
+        return "No external sources were retrieved for this question."
+    lines = []
+    for source in sources[:4]:
+        lines.append(
+            f"- {source.title} | {source.url}\n"
+            f"  Snippet: {normalize_answer_snippet(source.snippet) or source.snippet.strip() or 'No snippet available.'}"
+        )
+    return "\n".join(lines)
+
+
+def answer_question_with_llm(question: str, sources: list[SourceRecord], binary_question: bool) -> str:
+    if not groq_client:
+        return ""
+    system_prompt = (
+        "You answer user questions directly and clearly.\n"
+        "Rules:\n"
+        "- Give the actual answer first, not a review of the question.\n"
+        "- If the question is yes/no, start with Yes., No., or Partly., then explain.\n"
+        "- If the user's assumption is wrong, correct it explicitly.\n"
+        "- If source snippets are provided, use them when helpful.\n"
+        "- If no sources are available, still answer from general knowledge when the answer is well known.\n"
+        "- Do not mention prompts, tools, models, verification pipelines, or internal process.\n"
+        "- Do not use headings or bullet points.\n"
+        "- Keep the answer concise but actually useful."
+    )
+    user_prompt = (
+        f"Question: {question}\n"
+        f"Question type: {'yes/no' if binary_question else 'open-ended'}\n"
+        f"Retrieved source context:\n{build_source_context(sources)}"
+    )
+    try:
+        response = groq_client.chat.completions.create(
+            model=QUESTION_ANSWER_MODEL,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.0,
+            max_tokens=280,
+        )
+        return (response.choices[0].message.content or "").strip()
+    except Exception:
+        return ""
+
+
+def build_question_reply(effective_message: str, task_profile: dict, claims: list[str], sources: list[SourceRecord]) -> str:
+    mcq_data = parse_mcq_prompt(effective_message)
+    claim_checks = build_claim_checks(claims, sources)
+    evidence_label, evidence_reason = determine_evidence_strength(sources)
+    corrected_answer = build_corrected_answer(task_profile, claims, sources, mcq_data)
+    supported = sum("Supported" in item and "Partially" not in item for item in claim_checks)
+    partial = sum("Partially Supported" in item for item in claim_checks)
+    binary_question = looks_like_yes_no_question(effective_message)
+    llm_answer = answer_question_with_llm(effective_message, sources, binary_question)
+
+    if llm_answer:
+        answer = llm_answer
+    elif corrected_answer:
+        if binary_question:
+            prefix = "Yes." if supported else "Probably not." if partial else "No."
+            answer = f"{prefix} {corrected_answer}"
+        else:
+            answer = corrected_answer
+    elif supported:
+        answer = "The retrieved sources support this."
+    elif partial:
+        answer = "The retrieved sources only partially support this, so the answer is still uncertain."
+    else:
+        answer = "I could not verify this from strong sources in this run."
+
+    sections = [("## Answer", answer)]
+    if sources:
+        verification_bits = [f"{evidence_label} evidence strength. {evidence_reason}"]
+        if not any(source.credibility_tier == "Very High" for source in sources):
+            verification_bits.append("The source mix is useful, but not anchored by the strongest institutions.")
+        if len({source.claim for source in sources}) < len(claims):
+            verification_bits.append("Not every part of the prompt found its own supporting source.")
+        sections.append(("## Verification", " ".join(verification_bits)))
+        sections.append(("## What I Checked", join_bullets(claim_checks, "No claim-level verification was possible.")))
+        sections.append(("## Sources & References", render_sources_markdown(sources)))
+    else:
+        sections.append(
+            (
+                "## Verification",
+                "No strong live sources were retrieved for this answer, so this response is coming from the model's general knowledge rather than a successful external fact-check.",
+            )
+        )
+    return format_sections(sections)
+
+
 def build_confidence(task_profile: dict, sources: list[SourceRecord], base_score: int) -> str:
     confidence = 55 + (base_score * 4)
     if task_profile.get("needs_evidence"):
@@ -822,7 +953,9 @@ def get_ai_response(user_message: str, history: list, model: str = "consensus", 
     effective_message = build_effective_user_message(user_message, history)
     task_profile = infer_task_profile(effective_message, mode)
     claims, sources = collect_sources(effective_message, task_profile)
-    if mode == "credibility" or task_profile.get("kind") in {"mcq", "question"}:
+    if task_profile.get("kind") == "question" and mode != "credibility":
+        reply = build_question_reply(effective_message, task_profile, claims, sources)
+    elif mode == "credibility" or task_profile.get("kind") == "mcq":
         reply = build_credibility_reply(effective_message, task_profile, claims, sources)
     elif mode == "feedback":
         reply = build_feedback_reply(effective_message, task_profile, sources)
