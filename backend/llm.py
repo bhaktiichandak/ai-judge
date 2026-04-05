@@ -628,6 +628,38 @@ def choose_mcq_option(mcq_data: dict, sources: list[SourceRecord]) -> tuple[str,
     return (f"{best_option['label']} - {best_option['text']}", f"The retrieved evidence aligned best with option {best_option['label']}.")
 
 
+def normalize_answer_snippet(snippet: str) -> str:
+    cleaned = re.sub(r"<[^>]+>", " ", snippet or "")
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" .,-")
+    if not cleaned or cleaned.lower() == "no snippet available":
+        return ""
+    candidate = re.split(r"(?<=[.!?])\s+", cleaned, maxsplit=1)[0].strip()
+    if len(candidate) < 24 and len(cleaned) > len(candidate):
+        candidate = cleaned
+    if len(candidate) > 220:
+        candidate = candidate[:217].rstrip() + "..."
+    if candidate and candidate[-1] not in ".!?":
+        candidate += "."
+    return candidate
+
+
+def build_corrected_answer(task_profile: dict, claims: list[str], sources: list[SourceRecord], mcq_data: dict | None) -> str:
+    if mcq_data:
+        correct_option, _ = choose_mcq_option(mcq_data, sources)
+        if not correct_option.startswith("Insufficient evidence"):
+            return f"The correct option is {correct_option}."
+        return ""
+    if task_profile.get("kind") != "question" or not sources:
+        return ""
+    top_source = sources[0]
+    answer_snippet = normalize_answer_snippet(top_source.snippet)
+    if answer_snippet:
+        return f"Based on the strongest retrieved source, {answer_snippet}"
+    if top_source.title:
+        return f"The strongest retrieved source points to {top_source.title}."
+    return ""
+
+
 def build_confidence(task_profile: dict, sources: list[SourceRecord], base_score: int) -> str:
     confidence = 55 + (base_score * 4)
     if task_profile.get("needs_evidence"):
@@ -745,6 +777,7 @@ def build_credibility_reply(effective_message: str, task_profile: dict, claims: 
     claim_checks = build_claim_checks(claims, sources)
     evidence_label, evidence_reason = determine_evidence_strength(sources)
     best_answer, contradictions = build_consensus_header(task_profile)
+    corrected_answer = build_corrected_answer(task_profile, claims, sources, mcq_data)
     supported = sum("Supported" in item and "Partially" not in item for item in claim_checks)
     partial = sum("Partially Supported" in item for item in claim_checks)
     if supported:
@@ -753,6 +786,8 @@ def build_credibility_reply(effective_message: str, task_profile: dict, claims: 
         verdict = "The claim has some support, but the evidence is incomplete and should not be treated as settled."
     else:
         verdict = "The claim is not verified by this run because the evidence is weak, missing, or too indirect."
+    if corrected_answer:
+        verdict = f"{corrected_answer} {verdict}"
     gaps = []
     if not sources:
         gaps.append("No credible external source was retrieved, so the answer is deterministic but not verified.")
@@ -787,7 +822,7 @@ def get_ai_response(user_message: str, history: list, model: str = "consensus", 
     effective_message = build_effective_user_message(user_message, history)
     task_profile = infer_task_profile(effective_message, mode)
     claims, sources = collect_sources(effective_message, task_profile)
-    if mode == "credibility" or task_profile.get("kind") == "mcq":
+    if mode == "credibility" or task_profile.get("kind") in {"mcq", "question"}:
         reply = build_credibility_reply(effective_message, task_profile, claims, sources)
     elif mode == "feedback":
         reply = build_feedback_reply(effective_message, task_profile, sources)
