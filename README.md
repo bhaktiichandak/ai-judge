@@ -1,51 +1,24 @@
-# 🧑‍⚖️ AI Judge
+# AI Judge
 
-An AI-powered evaluation system that automatically reviews, scores, and provides feedback on user inputs/projects using Large Language Models.
+AI Judge is an LLM-powered evaluation app built with FastAPI and Streamlit. It reviews writing, code, arguments, and ideas using a multi-model consensus flow.
 
----
+## Features
 
-## 🚀 Overview
+- Deterministic consensus judging
+- Structured verdict, reasoning, and suggestions
+- Streamlit chat UI
+- Optional MongoDB Atlas chat persistence by session id
 
-AI Judge is designed to simulate a real-world judging system using AI. It evaluates outputs based on defined criteria such as correctness, clarity, and quality, and provides structured feedback.
-
-This project demonstrates how LLMs can be used as evaluators (LLM-as-a-Judge) to automate decision-making and scoring tasks.
-
----
-
-## ✨ Features
-
-- 🤖 AI-based evaluation system
-- 📊 Scoring based on custom criteria
-- 📝 Detailed feedback generation
-- ⚡ Fast and automated judging
-- 🔧 Easily customizable prompts
-
----
-
-## 🛠️ Tech Stack
+## Tech Stack
 
 - Python
 - FastAPI
 - Streamlit
 - Groq
 - Gemini
+- MongoDB Atlas
 
----
-
-## ⚙️ How It Works
-
-1. User provides input (project / answer / code / idea)
-2. AI model evaluates it using predefined criteria
-3. System generates:
-   - Score
-   - Reasoning
-   - Feedback
-
-This follows the concept of **LLM-as-a-Judge**, where AI evaluates outputs instead of humans :contentReference[oaicite:0]{index=0}.
-
----
-
-## 📦 Installation
+## Installation
 
 ```bash
 git clone https://github.com/bhaktiichandak/ai-judge.git
@@ -53,7 +26,26 @@ cd ai-judge
 pip install -r requirements.txt
 ```
 
-## ▶️ Run Locally
+## Environment Variables
+
+Add these values to `backend/.env`:
+
+```env
+GROQ_API_KEY=your_groq_key
+GEMINI_API_KEY=your_gemini_key
+MONGODB_URI=your_mongodb_atlas_connection_string
+MONGODB_DB_NAME=ai_judge
+```
+
+Add this value to `frontend/.env` if needed:
+
+```env
+BACKEND_URL=http://localhost:8000
+```
+
+If `MONGODB_URI` is not set, the app still works, but chat history stays local to the current Streamlit session instead of being stored in MongoDB Atlas. When MongoDB is configured, the frontend keeps a `chat` session id in the URL and reloads that conversation from the backend on refresh.
+
+## Run Locally
 
 ```bash
 uvicorn backend.main:app --reload
